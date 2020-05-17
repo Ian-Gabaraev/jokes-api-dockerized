@@ -28,7 +28,8 @@ class Config:
                         'I don\'t know, but the flag is a big plus.'
 
     # Messages
-    BAD_PARAMETER = "User\'s name can only contain digits " \
+    BAD_PARAMETER = "password and username are required" \
+                    "username and password can only contain digits " \
                     "and letters and must be at least 6 " \
                     "characters long, 20 characters at max"
     TOO_LONG = b"Joke string is too long. Max allowed size is 900 characters"

@@ -2,12 +2,7 @@ from flask import current_app as app
 from flask import jsonify
 from flask import request
 from flask import make_response
-
-from flask_restful import Resource
-from flask_restful import Api
-from flask_restful import reqparse
-
-from sqlalchemy.exc import IntegrityError
+from flask import Response
 
 from .models import User
 from .models import Joke
@@ -24,6 +19,7 @@ from flask_jwt_extended import create_access_token
 from flask_jwt_extended import get_jwt_identity
 
 import requests
+import json
 
 jwt = JWTManager(app)
 
@@ -34,20 +30,20 @@ def index():
     Index page endpoint
     :return: 204 No Content
     """
-    return '', 204
+    return Response(response='', status=204, content_type='text/plain')
 
 
-def log_action(req_obj: request, user_id: int):
+def log_action(request_object: request, user_id: int):
     """
     This subroutine allows logging registered users' activity
-    :param req_obj: current request context
+    :param request_object: current request context
     :param user_id: actor's user_id
     :return: None
     """
     new_action = Action(
-        user_ip_address=req_obj.remote_addr,
+        user_ip_address=request_object.remote_addr,
         action_time=datetime.now(),
-        action_path=req_obj.path,
+        action_path=request_object.path,
         user_id=user_id,
     )
     db.session.add(new_action)
@@ -64,66 +60,65 @@ def compare(candidate: str, hashcode: str) -> bool:
     return bcrypt.check_password_hash(hashcode, candidate)
 
 
-def within_bounds(user_id):
+def within_bounds(user_id: int) -> bool:
     """
     This subroutine check whether the User
     has not reached the limit of available Jokes
     :param user_id: User identity
     :return: boolean True or False
     """
-    return len(
-        Joke.query.filter_by(user_id=user_id).all()
-    ) <= app.config['JOKES_LIMIT']
+    all_users_jokes = Joke.query.filter_by(user_id=user_id).all()
+    return len(all_users_jokes) <= app.config['JOKES_LIMIT']
 
 
-class Registration(Resource):
+@app.route('/register', methods=['POST'])
+def register():
     """
-    The registration endpoint takes
-    two mandatory parameters:
-    'username' and 'password',
-    If successful, user's credentials are written
-    to the database
+    Process POST requests to endpoint '/register' w/
+    required parameters str: username and str: password
+    :return: 400 Bad Request if username or password
+    are not alphanumeric or shorter than 6 chars each,
+    bigger than 20 chars each, else return 201 Created
     """
-    parser = reqparse.RequestParser()
-    parser.add_argument(
-        'username',
-        type=str,
-        required=True
-    )
-    parser.add_argument(
-        'password',
-        type=str,
-        required=True
-    )
+    try:
+        assert 'username' in request.form
+        assert 'password' in request.form
+    except AssertionError:
+        return Response(response=app.config['BAD_PARAMETER'],
+                        status=400, content_type='text/plain')
+    else:
 
-    def post(self):
-        """
-        Process POST requests to endpoint '/register' w/
-        required parameters str: username and str: password
-        :return: 400 Bad Request if username or password
-        are not alphanumeric or shorter than 6 chars each,
-        bigger than 20 chars each, else return 201 Created
-        """
-        for param in Registration.parser.parse_args().values():
-            if not param.isalnum() or (len(param) < 6 or len(param) > 20):
-                return make_response(jsonify(
-                    error=app.config['BAD_PARAMETER']
-                ), 400)
-
-        new_user = User(
-            username=Registration.parser.parse_args()['username'],
-            password=bcrypt.generate_password_hash(
-                Registration.parser.parse_args()['password'])
-        )
         try:
-            # Save the new user to the User table
-            db.session.add(new_user)
-            db.session.commit()
-        # Trying to add a UNIQUE field twice violates database integrity
-        except IntegrityError:
-            return make_response('This user already exists', 400)
+
+            for parameter in request.form.values():
+                assert parameter.isalnum()
+                assert len(parameter) >= 6
+                assert len(parameter) <= 20
+
+        except AssertionError:
+            return Response(response=app.config['BAD_PARAMETER'],
+                            status=400, content_type='text/plain')
         else:
-            return make_response('User created', 201)
+
+            this_user = User.query.filter_by(
+                username=request.form['username']
+            ).first()
+
+            if not this_user:
+                new_user = User(
+                    username=request.form['username'],
+                    password=bcrypt.generate_password_hash(
+                        request.form['password'])
+                )
+
+                db.session.add(new_user)
+                db.session.commit()
+
+                return Response(response="You are registered",
+                                status=201, content_type='text/plain')
+
+        return Response(response="This user already exists",
+                        status=403, content_type='text/plain')
 
 
 @app.route('/login', methods=['POST'])
@@ -137,20 +132,26 @@ def login():
 
     # If password or username are not present in
     # the request, return 401 Unauthorized
+
     if not (request.form['username'] and request.form['password']):
-        return make_response('Missing username/password', 401)
+        return Response(response="Missing username/password",
+                        status=401, content_type='text/plain')
 
     # If requester user does not exist,
     # return 401 Unauthorized
+
     if not User.query.filter_by(username=request.form['username']).first():
-        return make_response('No such user', 401)
+        return Response(response="No such user",
+                        status=401, content_type='text/plain')
 
     # If password and hash did not match, return
     # 401 Unauthorized
     if not compare(candidate=request.form['password'],
                    hashcode=User.query.filter_by(
                        username=request.form['username']).first().password):
-        return make_response('Wrong password', 401)
+
+        return Response(response="Wrong password",
+                        status=401, content_type='text/plain')
 
     access_token = create_access_token(
         identity=User.query.filter_by(
@@ -158,7 +159,9 @@ def login():
     )
 
     # If credentials are correct, generate and return JWT
-    return jsonify(access_token=access_token), 200
+
+    return Response(response=json.dumps({'access_token': access_token}),
+                    status=200, content_type='application/json')
 
 
 @app.route('/create-joke', methods=['PUT'])
@@ -175,21 +178,25 @@ def create_joke():
     try:
         assert within_bounds(get_jwt_identity())
     except AssertionError:
-        return make_response('Your jokes collection is full', 403)
+
+        return Response(response="Your jokes collection is full",
+                        status=403, content_type='text/plain')
 
     # Check if joke content is present in the request
     try:
         assert 'content' in request.form
     except AssertionError:
-        return make_response('No joke content present', 400)
+        return Response(response="No joke content present",
+                        status=400, content_type='text/plain')
     else:
 
         # Check if joke content length is within limits
         try:
             assert len(request.form['content']) <= 900
         except AssertionError:
-            return make_response('Joke string is too long. '
-                                 'Max allowed size is 900 characters', 400)
+            return Response(response=app.config['TOO_LONG'],
+                            status=400, content_type='text/plain')
+
         else:
 
             this_joke = Joke.query.filter_by(
@@ -197,7 +204,8 @@ def create_joke():
 
             # Check if the User has this joke already
             if this_joke:
-                return make_response('This joke already exists', 403)
+                return Response(response="This joke already exists",
+                                status=403, content_type='text/plain')
 
             # Create and save new joke to Joke table
             new_joke = Joke(
@@ -206,7 +214,10 @@ def create_joke():
             )
             db.session.add(new_joke)
             db.session.commit()
-            return make_response('Joke created', 201)
+
+            return Response(response="Joke created",
+                            status=201, content_type='text/plain')
+
     finally:
         log_action(request, get_jwt_identity())
 
@@ -224,20 +235,26 @@ def import_a_joke():
     try:
         assert within_bounds(get_jwt_identity())
     except AssertionError:
-        return make_response('Your jokes collection is full', 403)
+
+        return Response(response="Your jokes collection is full",
+                        status=403, content_type='text/plain')
 
     try:
         assert 'source' in request.form
     except AssertionError:
-        return make_response('source is required', 400)
+        return Response(response="Your jokes collection is full",
+                        status=400, content_type='text/plain')
     else:
 
         # Check if server supports the source
         try:
             assert request.form['source'] in app.config['FOREIGN_API']
         except AssertionError:
-            return make_response('This source is not supported', 404)
+
+            return Response(response="This source is not supported",
+                            status=403, content_type='text/plain')
         else:
+            # Request the joke content from foreign API
             content = requests.get(
                 app.config['FOREIGN_API'][request.form['source']]
             ).json()['joke']
@@ -249,7 +266,8 @@ def import_a_joke():
 
             # If it is present, refuse action and return 403 Forbidden
             if this_joke:
-                return make_response('This joke already exists', 403)
+                return Response(response="This joke already exists",
+                                status=403, content_type='text/plain')
 
             # Else, create and save the new joke
             new_joke = Joke(
@@ -260,7 +278,8 @@ def import_a_joke():
             db.session.add(new_joke)
             db.session.commit()
 
-            return make_response('Joke created', 201)
+            return Response(response="Joke created",
+                            status=201, content_type='text/plain')
 
     finally:
         log_action(request, get_jwt_identity())
@@ -277,7 +296,8 @@ def get_joke_by_id():
         # Check if joke_id is present in the request
         assert 'joke_id' in request.form
     except AssertionError:
-        return make_response('joke_id is a required parameter', 400)
+        return Response(response="joke_id is a required parameter",
+                        status=400, content_type='text/plain')
     else:
         try:
             joke_obj = Joke.query.filter_by(
@@ -287,7 +307,8 @@ def get_joke_by_id():
             # Check if Joke by joke_id exists
             assert joke_obj
         except AssertionError:
-            return make_response('Nothing found', 404)
+            return Response(response="Nothing found",
+                            status=404, content_type='text/plain')
         else:
             return make_response(
                 joke_obj.content, 200
@@ -310,7 +331,8 @@ def get_my_jokes():
         assert all_jokes
     except AssertionError:
         # If none, return 204 No Content
-        return make_response('', 204)
+        return Response(response="",
+                        status=204, content_type='text/plain')
     else:
         # Else, generate a dictionary as joke_id:content
         result = {
@@ -334,14 +356,16 @@ def update_my_joke():
         assert 'joke_id' in request.form
         assert 'content' in request.form
     except AssertionError:
-        return make_response('joke_id and content are required', 400)
+        return Response(response="joke_id and content are required",
+                        status=400, content_type='text/plain')
     else:
 
         # Check if the new joke content is withing the bounds
         try:
             assert len(request.form['content']) <= 900
         except AssertionError:
-            return make_response(app.config['TOO_LONG'], 400)
+            return Response(response=app.config['TOO_LONG'],
+                            status=400, content_type='text/plain')
         else:
 
             this_joke = Joke.query.filter_by(
@@ -351,11 +375,13 @@ def update_my_joke():
 
             # If the joke does not exists, return 404 Not Found
             if not this_joke:
-                return make_response('Nothing to patch', 404)
+                return Response(response="Nothing to patch",
+                                status=404, content_type='text/plain')
 
             this_joke.content = request.form['content']
             db.session.commit()
-            return make_response('', 204)
+            return Response(response="",
+                            status=204, content_type='text/plain')
     finally:
         log_action(request, get_jwt_identity())
 
@@ -371,7 +397,8 @@ def delete_my_joke():
         # Check if joke_id is present in the request
         assert 'joke_id' in request.form
     except AssertionError:
-        return make_response('joke_id is required', 400)
+        return Response(response="joke_id is required",
+                        status=400, content_type='text/plain')
     else:
 
         this_joke = Joke.query.filter_by(
@@ -383,17 +410,15 @@ def delete_my_joke():
             # Check if Joke by this joke_id exists
             assert this_joke
         except AssertionError:
-            return make_response('This joke does not exist', 404)
+            return Response(response="This joke does not exist",
+                            status=404, content_type='text/plain')
         else:
             # Delete the joke
             db.session.delete(this_joke)
             db.session.commit()
             # Return 200 OK and removed Joke content
-            return make_response(this_joke.content, 200)
+            return Response(response=this_joke.content,
+                            status=200, content_type='text/plain')
 
     finally:
         log_action(request, get_jwt_identity())
-
-
-api = Api(app)
-api.add_resource(Registration, '/register')

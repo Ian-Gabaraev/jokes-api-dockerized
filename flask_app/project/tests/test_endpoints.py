@@ -121,6 +121,7 @@ class RegistrationResourceTestCase(unittest.TestCase):
             app.config['FAKE_USER_PASSWORD'],
             feedback=True
         )
+
         self.fake_user = RegistrationResourceTestCase.get_user_object(
             username=app.config['FAKE_USER'])
         self.assertTrue(self.fake_user)
@@ -142,7 +143,7 @@ class RegistrationResourceTestCase(unittest.TestCase):
             feedback=True
         )
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 403)
         self.assertEqual(response.data, b'This user already exists')
 
     def test_registration_with_wrongly_sized_credentials(self):
@@ -871,7 +872,7 @@ class TestImportJokeTestCase(unittest.TestCase):
             Authorization='Bearer ' + self.access_token)
         )
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 403)
         self.assertEqual(response.data, b'This source is not supported')
 
 
