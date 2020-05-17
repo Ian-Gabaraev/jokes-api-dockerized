@@ -354,7 +354,6 @@ class BasicJokesResourceTestCase(unittest.TestCase):
     def setUp(self):
         """
         Spawning one User and logging it in
-        :return:
         """
         # First, register a new user in the User table"""
         RegistrationResourceTestCase.register_fake_user(
