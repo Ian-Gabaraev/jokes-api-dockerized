@@ -1,15 +1,17 @@
+from project.models import db
+from project.models import Joke
+from project.models import User
+from project import create_app
+
 import sys
 import os
 import unittest
 import json
 import random
 from sqlalchemy.orm.exc import UnmappedInstanceError
+
 # Fixes the relative import issue for Travis CI
 sys.path.append(os.getcwd() + '/..')
-from project.models import db
-from project.models import Joke
-from project.models import User
-from project import create_app
 
 
 app = create_app()
