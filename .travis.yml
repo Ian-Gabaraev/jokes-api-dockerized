@@ -1,0 +1,17 @@
+# Language support to enable
+language: python
+
+# Specifying Python versions
+python:
+  - "3.7"
+
+# Services to set up and start
+services:
+  - docker
+
+# Scripts to run before the script stage
+before_script: pip install docker-compose
+
+# Scripts to run at the script stage
+script:
+  - docker-compose run flask_app sh -c "python project/tests/test_endpoints.py && flake8"
