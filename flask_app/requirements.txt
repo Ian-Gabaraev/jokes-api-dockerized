@@ -21,7 +21,7 @@ passlib==1.7.2
 pycodestyle==2.6.0
 pycparser==2.20
 pyflakes==2.2.0
-PyJWT==1.7.1
+PyJWT==2.4.0
 pytz==2020.1
 requests==2.23.0
 six==1.14.0
